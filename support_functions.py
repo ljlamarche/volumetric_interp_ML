@@ -1,20 +1,21 @@
-#
-# Support functions.
-#
-# Author: Nicolas Gachancipa
-#
+"""
+Volumetric interpolation using artificial neural networks.
+
+Authors: Nicolas Gachancipa, Leslie Lamarche
+
+Stanford Research Institute (SRI)
+Embry-Riddle Aeronautical University
+"""
 
 # Imports.
 import cartopy.crs as ccrs
 import datetime as dt
-import math
 from matplotlib.widgets import Slider
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pymap3d as pm
 from scipy.spatial import ConvexHull
-from scipy.interpolate import interp1d
 from sklearn import metrics
 import tables
 import tensorflow as tf
@@ -28,6 +29,10 @@ def read_datafile(filename, start_time, end_time, chi2lim=(0.1, 10)):
     Parameters:
         filename: [str]
             filename/path of processed AMISR hdf5 file
+        start_time: [datetime]
+            All the data before the start time is filtered out. Format: '%Y-%m-%dT%H:%M:%S'
+        end_time: [datetime]
+            All the data after the end time is filtered out. Format: '%Y-%m-%dT%H:%M:%S'
         chi2lim: [tuple]
             remove all points outside the given chi2 range (lower limit, upper limit)
 
@@ -46,20 +51,15 @@ def read_datafile(filename, start_time, end_time, chi2lim=(0.1, 10)):
             error in parameter values
     """
 
-    # Open the file.
-    # df = pd.read_hdf(filename)
-    # print(df)
-    # quit()
-
     # Open the file, and extract the relevant data.
     with tables.open_file(filename, 'r') as h5file:
         # Obtain time.
         utime = h5file.get_node('/Time/UnixTime')[:]
 
         # Obtain altitude, longitude, latitude, chi2, and fit code for the given times.
-        alt = h5file.get_node('/Geomag/Altitude')[:]
-        lat = h5file.get_node('/Geomag/Latitude')[:]
-        lon = h5file.get_node('/Geomag/Longitude')[:]
+        altitude = h5file.get_node('/Geomag/Altitude')[:]
+        latitude = h5file.get_node('/Geomag/Latitude')[:]
+        longitude = h5file.get_node('/Geomag/Longitude')[:]
 
         # Filter time to only include times within the given start and end times.
         idx = np.argwhere((utime[:, 0] >= (start_time - dt.datetime.utcfromtimestamp(0)).total_seconds()) & (
@@ -70,31 +70,31 @@ def read_datafile(filename, start_time, end_time, chi2lim=(0.1, 10)):
         utime = utime.mean(axis=1)
 
         # Obtain the density values, errors, chi2 values, and fitcode (only for the selected times).
-        val = h5file.get_node('/FittedParams/Ne')[idx, :, :]
-        err = h5file.get_node('/FittedParams/dNe')[idx, :, :]
-        c2 = h5file.get_node('/FittedParams/FitInfo/chi2')[idx, :, :]
+        value = h5file.get_node('/FittedParams/Ne')[idx, :, :]
+        error = h5file.get_node('/FittedParams/dNe')[idx, :, :]
+        chi2 = h5file.get_node('/FittedParams/FitInfo/chi2')[idx, :, :]
         fc = h5file.get_node('/FittedParams/FitInfo/fitcode')[idx, :, :]
 
     # Flatten the arrays.
-    altitude = alt.flatten()
-    latitude = lat.flatten()
-    longitude = lon.flatten()
+    altitude = altitude.flatten()
+    latitude = latitude.flatten()
+    longitude = longitude.flatten()
 
     # Reshape arrays.
-    value = val.reshape(val.shape[0], -1)
-    error = err.reshape(err.shape[0], -1)
-    chi2 = c2.reshape(c2.shape[0], -1)
-    fitcode = fc.reshape(fc.shape[0], -1)
+    value = value.reshape(value.shape[0], -1)
+    error = error.reshape(error.shape[0], -1)
+    chi2 = chi2.reshape(chi2.shape[0], -1)
+    fit_code = fc.reshape(fc.shape[0], -1)
 
     # This accounts for an error in some of the hdf5 files where chi2 is overestimated by 369.
     if np.nanmedian(chi2) > 100.:
         chi2 = chi2 - 369.
 
-    # data_check: 2D boolian array for removing "bad" data.
-    # Each column correpsonds to a different "check" condition.
+    # data_check: 2D boolean array for removing "bad" data.
+    # Each column corresponds to a different "check" condition.
     # TRUE for "GOOD" point; FALSE for "BAD" point.
     # A "good" record that shouldn't be removed should be TRUE for EVERY check condition.
-    data_check = np.array([chi2 > chi2lim[0], chi2 < chi2lim[1], np.isin(fitcode, [1, 2, 3, 4])])
+    data_check = np.array([chi2 > chi2lim[0], chi2 < chi2lim[1], np.isin(fit_code, [1, 2, 3, 4])])
 
     # If ANY elements of data_check are FALSE, flag index as bad data. Remove the bad data from the array.
     bad_data = np.squeeze(np.any(data_check is False, axis=0, keepdims=True))
@@ -111,114 +111,75 @@ def read_datafile(filename, start_time, end_time, chi2lim=(0.1, 10)):
     # Convert coordinates to hull_vert.
     x, y, z = pm.geodetic2ecef(latitude, longitude, altitude)
     r_cart = np.array([x, y, z]).T
-    chull = ConvexHull(r_cart)
-    hull_vert = r_cart[chull.vertices]
+    c_hull = ConvexHull(r_cart)
+    hull_vert = r_cart[c_hull.vertices]
 
     # Return.
     return utime, latitude, longitude, altitude, value, error, hull_vert
 
 
-def train_nn(lat, lon, alt, val):
+class StopAtLossValue(tf.keras.callbacks.Callback):
+    """
+    Callback to stop training a neural network when a certain loss is achieved.
+    Change the set_point_loss value to define the desired loss value.
     """
 
-    Returns:
-
-    """
-
-    # Filter by altitude.
-    alt /= 1e3
-    df = pd.DataFrame(np.array([lat, lon, alt])).T
-    df.columns = ['Latitude', 'Longitude', 'Altitude']
-    df = pd.concat([df, pd.DataFrame(val).T], axis=1)
-    df = df[df['Altitude'] <= 325]
-    df = df[df['Altitude'] >= 275]
-
-    # Test the first two rows.
-    n = 2
-    df = df.iloc[:n]
-
-    # Normalize the data.
-    lat, lon, alt, val = df['Latitude'], df['Longitude'], df['Altitude'], df[0]
-    df['Latitude'] = (lat - min(lat)) / (max(lat) - min(lat))
-    df['Longitude'] = (lon - min(lon)) / (max(lon) - min(lon))
-    df['Altitude'] = (alt - min(alt)) / (max(alt) - min(alt))
-    df[0] = (val - min(val)) / (max(val) - min(val))
-
-    # Define neural network parameters.
-    X = df[['Latitude', 'Longitude']]
-    y = df[[0]]
-    # print(X)
-    # print(y)
-    # print(X.shape)
-    # print(y.shape)
-
-    # Train the neural network.
-    network = tf.keras.Sequential([tf.keras.layers.Dense(units=1, input_shape=[2])])
-    network.compile(optimizer='sgd', loss='mse')
-    network.fit(X, y, epochs=1000)
-
-    # Prediction test.
-    y_predict = network.predict([[0, 0],
-                                 [0, 0.25],
-                                 [0, 0.5],
-                                 [0, 0.75],
-                                 [0, 1],
-                                 [0.25, 1],
-                                 [0.5, 1],
-                                 [0.75, 1],
-                                 [1, 1]])
-    print('Original:', y)
-    print('Prediction: ', y_predict)
-
-
-class stopAtLossValue(tf.keras.callbacks.Callback):
-
-    def on_batch_end(self, batch, logs={}):
-        THR = 0.001
-        if logs.get('loss') <= THR:
+    def on_batch_end(self, batch, logs=None):
+        if logs is None:
+            logs = {}
+        set_point_loss = 0.001
+        if logs.get('loss') <= set_point_loss:
             self.model.stop_training = True
 
 
-# learning rate schedule
-def step_decay(epoch):
-    initial_lrate = 0.1
-    drop = 1
-    epochs_drop = 1
-    lrate = initial_lrate * math.pow(drop, math.floor((1 + epoch) / epochs_drop))
-    return lrate
-
-
-def nn_model(df, rows=10, columns=10, r2=False, cbar_lim=None, distances=False):
+def volumetric_nn(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, density_range=(1e10, 1e12),
+                  fig3D=True, save_imgs=False):
     """
-
-    Args:
-        df:
-        rows:
-        columns:
-        r2:
-        cbar_lim:
-
+    Parameters:
+        df: [dataframe]
+            Pandas daraframe with 4 columns (not including the index column). Such columns must be: 'Latitude',
+            'Longitude', 'Altitude' and 'Value'. The 'Vavlue' column must contain the electron density measures.
+        resolution: [tuple or list]
+            Tuple or list containing three integers. The resolution is the size of the 3D grid (x, y, z), corresponding
+            to (longitude, latitude, altitude). The higher the resolution, the longer it takes for the code to run.
+        cbar_lim: [tuple]
+            Elctron density color bar limits (e.g. (1e10, 1e11)).
+        real_dist: [boolean]
+            Set to True if you want the output to show the distances in kilometers from the radar (rather than in
+            longitude and latitude degrees).
+        density_range: [tuple]
+            Tuple containing the lower and upper limits of allowed electron density values. Any radar measurement
+            outside this range is removed before training the neural network. Default: (10e10, 10e12).
+        fig3D [boolean]:
+            True for 3D plot, False for 2D plot only.
+        save_imgs:
+            True if you want to save the images in a png format to the local directory.
     Returns:
-
+        2D or 3D plot.
     """
+
+    #################
+    # DATA PROCESSING
+    #################
+
     # Drop nans and sort dataframe by energy value.
     df = df.dropna()
     df = df.sort_values(by='Value')
 
-    # Convert latitudes/longitudes to distances (if distances == True).
-    if distances:
+    # Convert latitudes/longitudes to real distances in km (if real_dist == True).
+    if real_dist:
 
-        # RISR location.
-        df = df.sort_values(by='Latitude')
+        # Define the location of RISR.
         risr_coords = (74.72, -94.9)
 
-        # Compute the distances between every point's latitude and the min lat.
+        # Compute the real distances (in km) between every measurement's latitude and the radar's latitude.
+        # Do the same for longitude.
         new_lats, new_lons = [], []
         for lat, lon in zip(df['Latitude'], df['Longitude']):
             lat_coord = (lat, risr_coords[1])
             lon_coord = (risr_coords[0], lon)
-            lat_dist = geopy.distance.vincenty(risr_coords, lat_coord).km
-            lon_dist = geopy.distance.vincenty(risr_coords, lon_coord).km
+            lat_dist = geopy.distance.geodesic(risr_coords, lat_coord).km
+            lon_dist = geopy.distance.geodesic(risr_coords, lon_coord).km
             if lat < risr_coords[0]:
                 lat_dist *= -1
             if lon < risr_coords[1]:
@@ -226,360 +187,224 @@ def nn_model(df, rows=10, columns=10, r2=False, cbar_lim=None, distances=False):
             new_lats.append(lat_dist)
             new_lons.append(lon_dist)
 
-        # Replace in the df.
+        # Replace in the dataframe. From now on, the 'Latitude' and 'Longitude' columns contain
         df['Latitude'] = new_lats
         df['Longitude'] = new_lons
 
-    # Limits (10^9 or 10^10, 10^13 or 10^12)
-    df = df[df['Value'] >= 10 ** 10]
-    df = df[df['Value'] <= 10 ** 12]
+    # Filter out electron densities outside the given range.
+    df = df[df['Value'] >= density_range[0]]
+    df = df[df['Value'] <= density_range[1]]
 
-    # Remove outliers (outside 2 stdev).
-    mean = df['Value'].describe()['mean']
-    stdev = df['Value'].describe()['std']
-    df = df[df['Value'] >= (mean - 2 * stdev)]
-    df = df[df['Value'] <= (mean + 2 * stdev)]
-    org_df = df.copy()
+    # Find the log10 of the electron density values. This conversion allows the neural network to be trained more
+    # efficiently. Save the converted values to a new column.
+    df['Log Value'] = np.log10(df['Value'])
 
-    # Drop the energy values above 2 standard deviations.
-    # mean = df['Value'].describe()['mean']
-    # stdev = df['Value'].describe()['std']
-    # df = df[df['Value'] <= mean + 1.5 * stdev]
-
-    # Sort by value.
-    df['Value'] = np.log10(df['Value'])
+    # Drop the data instances that have nan values in any column. Sometimes the log conversion leads to nan errors.
     df = df.dropna()
 
-    # Example (density value)
-    # [1e10, 1e11, 1e12]
-    # [10, 11, 12]
-    # [0, 0.5, 1]
+    # Normalize the data (in a new dataframe). Normalized data allows the neural network to be trained faster and more
+    # effectively. Normalization is a rescaling of the data from the original range so that all values are within the
+    # range of 0 and 1.
+    # https://machinelearningmastery.com/how-to-improve-neural-network-stability-and-modeling-performance-with-data-scaling/
+    df_train = df.copy()
+    for column in df_train:
+        df_train[column] = (df_train[column] - min(df_train[column])) / (max(df_train[column]) - min(df_train[column]))
 
-    # Remove outliers by error.
-    # q1 = df['Error'].quantile(0.1)
-    # q3 = df['Error'].quantile(0.9)
-    # df = df[df['Error'] >= q1]
-    # df = df[df['Error'] <= q3]
-    # y_org = pd.DataFrame(df['Value']).copy()
-    # X_org = df.drop(['Value', 'Error'], axis=1).copy()
+    ##########
+    # TRAINING
+    ##########
 
-    # df['Error'].plot.hist(bins=100)
+    # Define neural network inputs (x and y).
+    # x: Normalized logarithmic density values (response variable).
+    # y: Normalized latitude, longitude, and altitude (predictor variables).
+    y = df_train['Log Value']
+    x = df_train.drop(['Value', 'Log Value'], axis=1)
 
-    # df = df[df['Value'] <= 5e11]
-    # plt.show()
-    # y_org = pd.DataFrame(df['Value']).copy()
-    # X_org = df.drop(['Value'], axis=1).copy()
-
-    # Save original df.
-    df_org = df.copy()
-
-    # Normalize the data.
-    for column in df:
-        df[column] = (df[column] - min(df[column])) / (max(df[column]) - min(df[column]))
-
-    # Define neural network parameters.
-    y = df['Value']  # density values [0 and 1]
-    X = df.drop(['Value'], axis=1)  # lat, lon, alt
-    # print(X.shape, y.shape)
-
-    # X = [[0, 0, 0],
-    #      [1, 1, 1]] - size: [2, 3]
-    # y = [[1],
-    #      [2]] - size [2, 1]
-
-    # Input layer = 3 neurons (lat, lon, alt)
-
-    # Multiply X by a matrix (A) of shape [3, 64].
-    # X of shape [2, 3]*[3, 64] = [2, 64]
-    # Activation function = [10000, -10000, 0, 0.25, 1, 2.5] - apply sigmoid: [1, 0, 0.5, ...]
-
-    # hidden layer 1 = 64 neurons
-    # X of shape [2, 64]*[64, 32] = [2, 32]
-
-    # hidden layer 2 = 32 neurons
-    # hidden layer 3 = 16 neurons
-    # hidden layer 4 = 8 neurons
-    # hidden layer 5 = 4 neurons
-    # X of shape [2, 4]*[4, 1] = [2, 1]
-
-    # Output layer = 1 neurons
-    # Output shape = [2, 1]
-    # Apply a final activation function: Output value between 0 and 1 (sigmoid).
-
-    # Train the neural network.
-    network = tf.keras.Sequential([tf.keras.layers.Dense(units=64, input_shape=[X.shape[1]], activation='tanh'),
+    # Define the architecture of the neural network, using TensorFlow.
+    network = tf.keras.Sequential([tf.keras.layers.Dense(units=64, input_shape=[x.shape[1]], activation='tanh'),
                                    tf.keras.layers.Dense(units=32, activation='tanh'),
                                    tf.keras.layers.Dense(units=16, activation='tanh'),
                                    tf.keras.layers.Dense(units=8, activation='tanh'),
                                    tf.keras.layers.Dense(units=4, activation='tanh'),
                                    tf.keras.layers.Dense(units=1, activation='sigmoid')])
-    # lrate = k.callbacks.LearningRateScheduler(step_decay)
+
+    # Compile the network: Define the optimizer and the loss function. See the following link for reference:
+    # https://medium.com/data-science-group-iitr/loss-functions-and-optimization-algorithms-demystified-bb92daff331c
     network.compile(optimizer=tf.keras.optimizers.Adam(), loss=tf.keras.losses.MeanSquaredError())
 
-    # 1st iteration (epoch 1).
-    # y_hat = [0, 0] and actual y = [1, 2] - MSE loss function: ((0 - 1)^2 + (0 - 2)^2)/2 = 2.5
-    # Update the network - Update the coefficients using an optimization technique.
-    # Save weights.h5
-
-    # 2nd iteration (epoch 2).
-    # y_hat = [0.5, 1] and actual y = [1, 2] - MSE loss function: ((0.5 - 1)^2 + (1 - 2)^2)/2 = 1.25/2 = 0.625
-    # 0.625 < 2.5, then save weights.h5
-
-    # 3rd
-    # loss = 0.8
-    # 0.8 > 0.625, don't save weights.h5
-
+    # Define a checkpoint. This allows the network to save the "best weights" to an h5 file.
     checkpoint = tf.keras.callbacks.ModelCheckpoint('weights.h5', verbose=1, monitor='loss', save_best_only=True,
                                                     mode='auto')
-    # Training happens.
-    # network.fit(X, y, epochs=100, callbacks=[stopAtLossValue(), checkpoint])
-    # At this point, you have a network and weights.
+    # Train the network.
+    # Comment out this line if you already have a weights.h5 file and you want to skip the training process.
+    network.fit(x, y, epochs=200, callbacks=[StopAtLossValue(), checkpoint])
 
-    # Load the best weights that have been saved to the h5 file.
+    # Load the best weights that have been saved in the h5 file.
     network.load_weights('weights.h5')
 
-    # 1. 1500 data points from the radar.
-    # 2. Train the network. - Best weights.
-    # 3. Load the best weights.
-    # 4. Predict for millions of datapoints. Create a grid of a by b by c. a = # of latitude stations
-    # b = # of lon
-    # c = # of alt
-    # a = 30, b = 30, c = 30 = 27,000
+    ##########
+    # PLOTTING
+    ##########
 
-    # Use the network to predict values.
-    X_hat = [[0.5, 0.5, 0.5],
-             [0.6, 0.6, 0.6]]
-    y_hat = network.predict(X_hat)
-
-    # print(list(y_hat.T[0]))
-
-    # Get the minimum and maximum original values.
-    y_org = pd.DataFrame(df_org['Value'])
-    X_org = df_org.drop(['Value'], axis=1)
-    X_lim = [[min(X_org[c]), max(X_org[c])] for c in X_org]
+    # Get the minimum and maximum values of each column (lat, lon, alt, logdensities). Save the min/max values to
+    # x_lim (lat, lot, alt) and y_lim (densities in log form).
+    y_org = pd.DataFrame(df['Log Value'])
+    x_org = df.drop(['Value', 'Log Value'], axis=1)
+    x_lim = [[min(x_org[c]), max(x_org[c])] for c in x_org]
     y_lim = [min(y_org.iloc[:, 0]), max(y_org.iloc[:, 0])]
-    aspect_ratio = abs(X_lim[1][0] - X_lim[1][1]) / abs(X_lim[0][0] - X_lim[0][1])
 
-    # Prediction test.
-    predict = [[r / (rows - 1), c / (columns - 1), a / (rows - 1)] for a in range(rows) for c in range(columns) for
-               r in range(rows)]
+    # Compute the lat/lon aspect ratio (useful for plotting).
+    aspect_ratio = abs(x_lim[1][0] - x_lim[1][1]) / abs(x_lim[0][0] - x_lim[0][1])
+
+    # Extract the resolution of the grid (x, y, z) = (lon, lat, alt). Given by the user.
+    rows, columns, heights = resolution
+
+    # Predict a value for each element in the 3D grid (every lon, lat, alt combination). Save the results to a variable
+    # called y_preditct.
+    predict = [[r / (rows - 1), c / (columns - 1), h / (heights - 1)] for r in range(rows) for c in range(columns) for
+               h in range(heights)]
     y_predict = network.predict(predict)
 
-    # Plot.
-    array = np.zeros((rows, columns, rows))
+    # Create a 3D array with the results (ressembling a 3D desity map). Convert the results (which are in a log scale)
+    # to real density values.
+    array = np.zeros((rows, columns, heights))
     for e, i in enumerate(predict):
+        # Obtain the x, y, z (lon, lat, alt) location.
         row = int(round(i[0] * (rows - 1), 0))
         column = int(round(i[1] * (columns - 1), 0))
-        level = int(round(i[2] * (rows - 1), 0))
+        level = int(round(i[2] * (heights - 1), 0))
 
-        # Denormalize the data.
-        # min = 1e10, max = 1e12
-        # min = 0, max = 1
-        # y = 0.5 for 1e11
+        # Convert predicted log density value to absolute scale, and save the value to the 3D array.
         array[row, column, level] = (10 ** (y_predict[e][0] * (y_lim[1] - y_lim[0]) + y_lim[0]))
+
+    # Define the color bar limits (if not provided by the user).
     if cbar_lim is None:
-        max_val = np.max(org_df['Value'])
-        min_val = np.min(org_df['Value'])
+        max_val = np.max(df['Value'])
+        min_val = np.min(df['Value'])
         cbar_lim = [min_val, max_val]
-    layer = array[:, :, 0]
 
-    # Create a subplot
-    fig3D = True
-    save_imgs = False
+    # Create a plot, and corresponding subplots.
     fig = plt.figure()
-
     if fig3D:
         ax = fig.add_subplot(121)
-        axSlider = plt.axes([0.15, 0.1, 0.25, 0.03])
+        ax_slider = plt.axes([0.15, 0.1, 0.25, 0.03])
     else:
-        if distances:
+        if real_dist:
             ax = fig.add_subplot()
         else:
             ax = fig.add_subplot(projection=ccrs.PlateCarree())
-        axSlider = plt.axes([0.3, 0.1, 0.42, 0.03])
+        ax_slider = plt.axes([0.3, 0.1, 0.42, 0.03])
     plt.subplots_adjust(bottom=0.25)
 
-    if distances:
-        im = ax.imshow(layer, cmap='jet', origin='lower', extent=[X_lim[1][0], X_lim[1][1], X_lim[0][0], X_lim[0][1]],
-                       vmin=cbar_lim[0], vmax=cbar_lim[1], aspect=aspect_ratio)
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        slider = Slider(axSlider, 'Altitude (m)', X_lim[2][0], X_lim[2][1], X_lim[2][0],
-                        valstep=((X_lim[2][1] - X_lim[2][0]) / (rows - 1)))
+    # Extract the first layer (lowest altitude).
+    layer = array[:, :, 0]
+
+    # Create grid plot and slider. Plot the first layer (lower altitude).
+    im = ax.imshow(layer, cmap='jet', origin='lower', extent=[x_lim[1][0], x_lim[1][1], x_lim[0][0], x_lim[0][1]],
+                   vmin=cbar_lim[0], vmax=cbar_lim[1], aspect=aspect_ratio)
+    slider = Slider(ax_slider, 'Altitude (m)', x_lim[2][0], x_lim[2][1], x_lim[2][0],
+                    valstep=((x_lim[2][1] - x_lim[2][0]) / (heights - 1)))
+
+    # Set x and y axis labels.
+    if real_dist:
+        ax.set_xlabel('Km from radar - East (+)')
+        ax.set_ylabel('Km from radar - North (+)')
     else:
-        im = ax.imshow(layer, cmap='jet', origin='lower', extent=[X_lim[1][0], X_lim[1][1], X_lim[0][0], X_lim[0][1]],
-                       vmin=cbar_lim[0], vmax=cbar_lim[1], aspect=aspect_ratio, transform=ccrs.PlateCarree())
-        ax.gridlines(draw_labels=True)
-        ax.coastlines(resolution='50m', color='black', linewidth=0.2)
         ax.set_xlabel('Longitude')
         ax.set_ylabel('Latitude')
-        slider = Slider(axSlider, 'Altitude (m)', X_lim[2][0], X_lim[2][1], X_lim[2][0],
-                        valstep=((X_lim[2][1] - X_lim[2][0]) / (rows - 1)))
 
-    # Add points to their closest layer.
-    stations = list(np.linspace(X_lim[2][0], X_lim[2][1], rows))
+    # Add the original data points to their closest layer: Add a new column to the original dataframe that contains
+    # the corresponding layer index of each data point.
+    stations = list(np.linspace(x_lim[2][0], x_lim[2][1], heights))
     indices = []
-    for a in list(org_df['Altitude']):
+    for a in list(df['Altitude']):
         closest_alt = min(stations, key=lambda x: abs(x - a))
         indices.append(stations.index(closest_alt))
-    org_df['Layer'] = indices
+    df['Layer'] = indices
 
-    # Plot colorbar.
-    # im.set_clim(min_val, max_val)
+    # Plot colorbar, using the predefined color bar limits.
     fig.colorbar(im, ax=ax, location='right', orientation='vertical', )
     cmap = im.set_clim(cbar_lim[0], cbar_lim[1])
 
-    # Plot points.
-    points = org_df[org_df['Layer'] == 0]
+    # Plot original data points of the first layer (layer = 0).
+    points = df[df['Layer'] == 0]
     ax.scatter(list(points['Longitude']), list(points['Latitude']), color='white', s=40)
     ax.scatter(list(points['Longitude']), list(points['Latitude']), cmap=cmap, s=20)
 
-    # Create function to be called when slider value is changed
-    def update(alt_value):
-        value = (alt_value - X_lim[2][0]) / (X_lim[2][1] - X_lim[2][0])
+    # Create function to be called when the slider value (altitude) is changed.
+    def update(alt_value, save=False):
+        val = (alt_value - x_lim[2][0]) / (x_lim[2][1] - x_lim[2][0])
         ax.clear()
-        points = org_df[org_df['Layer'] == stations.index(alt_value)]
-        l, r, b, u = min(points['Longitude']), max(points['Longitude']), min(points['Latitude']), \
-                     max(points['Latitude'])
-        if distances:
-            ax.imshow(array[:, :, int(round(value * (rows - 1), 0))], cmap='jet', origin='lower',
-                      extent=[X_lim[1][0], X_lim[1][1], X_lim[0][0], X_lim[0][1]],
-                      vmin=cbar_lim[0], vmax=cbar_lim[1], aspect=aspect_ratio)
-            ax.plot([l, r], [b, b], 'k')
-            ax.plot([l, r], [u, u], 'k')
-            ax.plot([l, l], [b, u], 'k')
-            ax.plot([r, r], [b, u], 'k')
-            ax.set_xlabel('x')
-            ax.set_ylabel('y')
+        pts = df[df['Layer'] == stations.index(alt_value)]
+        l, r, b, u = min(pts['Longitude']), max(pts['Longitude']), min(pts['Latitude']), max(pts['Latitude'])
+        ax.imshow(array[:, :, int(round(val * (heights - 1), 0))], cmap='jet', origin='lower',
+                  extent=[x_lim[1][0], x_lim[1][1], x_lim[0][0], x_lim[0][1]], vmin=cbar_lim[0], vmax=cbar_lim[1],
+                  aspect=aspect_ratio)
+        if real_dist:
+            ax.set_xlabel('Km from radar - East (+)')
+            ax.set_ylabel('Km from radar - North (+)')
         else:
-            ax.imshow(array[:, :, int(round(value * (rows - 1), 0))], cmap='jet', origin='lower',
-                      extent=[X_lim[1][0], X_lim[1][1], X_lim[0][0], X_lim[0][1]], vmin=cbar_lim[0], vmax=cbar_lim[1],
-                      aspect=aspect_ratio, transform=ccrs.PlateCarree())
-            ax.gridlines(draw_labels=True)
-            ax.coastlines(resolution='50m', color='black', linewidth=0.2)
-        ax.scatter(list(points['Longitude']), list(points['Latitude']), color='white', s=40)
-        ax.scatter(list(points['Longitude']), list(points['Latitude']), c=list(points['Value']), cmap='jet', s=20,
+            print('here')
+            ax.set_xlabel('Longitude')
+            ax.set_ylabel('Latitude')
+        ax.plot([l, r], [b, b], 'k')
+        ax.plot([l, r], [u, u], 'k')
+        ax.plot([l, l], [b, u], 'k')
+        ax.plot([r, r], [b, u], 'k')
+        ax.scatter(list(pts['Longitude']), list(pts['Latitude']), color='white', s=40)
+        ax.scatter(list(pts['Longitude']), list(pts['Latitude']), c=list(pts['Value']), cmap='jet', s=20,
                    vmin=cbar_lim[0], vmax=cbar_lim[1])
 
-        if save_imgs:
+        # Save the layer to a png file.
+        if save:
             ax.set_title('Altitude: {} km.'.format(round(alt_value / 1000, 1)))
-            plt.savefig('fig_{}.jpg'.format(e))
+            plt.savefig('fig_{}.jpg'.format(int(alt_value / 1000)))
 
+    # Save the images in png files (if selected by the user).
     if save_imgs:
-        for e, value in enumerate(
-                range(int(X_lim[2][0]), int(X_lim[2][1]), int((X_lim[2][1] - X_lim[2][0]) / (rows - 1)))):
-            update(value)
+        for value in range(int(x_lim[2][0]), int(x_lim[2][1]), int((x_lim[2][1] - x_lim[2][0]) / (heights - 1))):
+            update(value, save=True)
 
-    # Call update function when slider value is changed
+    # Call update function when slider value is changed.
     slider.on_changed(update)
 
     # Plot 3D figure.
     if fig3D:
-        # Create new fig.
-        xx, yy = np.meshgrid(np.linspace(X_lim[0][0], X_lim[0][1], rows),
-                             np.linspace(X_lim[1][0], X_lim[1][1], columns))
+
+        # Create new meshgrid. (xx = lon, yy = lat).
+        xx, yy = np.meshgrid(np.linspace(x_lim[1][0], x_lim[1][1], rows),
+                             np.linspace(x_lim[0][0], x_lim[0][1], columns))
         axis = fig.add_subplot(122, projection='3d')
 
         # Set z limits.
-        axis.set_zlim(X_lim[2][0] / 1000, X_lim[2][1] / 1000)
+        axis.set_zlim(x_lim[2][0] / 1000, x_lim[2][1] / 1000)
 
-        # Plot.
-        number_of_layers = rows
-        if rows < number_of_layers:
-            number_of_layers = rows
+        # 3D Plot.
+        number_of_layers = heights
+        if heights < number_of_layers:
+            number_of_layers = heights
         for v in range(0, array.shape[-1], int(array.shape[-1] / number_of_layers)):
             print('Plotting 3D layers: {} out of {}.'.format(v + 1, number_of_layers))
-            layer = array[:, :, v].transpose()
+            layer = array[:, :, v]
             axis.contourf(xx, yy, layer, 100, zdir='z',
-                          offset=((v / number_of_layers) * (X_lim[2][1] - X_lim[2][0]) + X_lim[2][0]) / 1000,
+                          offset=((v / number_of_layers) * (x_lim[2][1] - x_lim[2][0]) + x_lim[2][0]) / 1000,
                           vmin=cbar_lim[0], vmax=cbar_lim[1], cmap='jet')
 
-        # Set labels, and display plot.
-        plt.xlabel('Longitude (°)')
-        plt.ylabel('Latitude (°)')
+        # Set labels.
+        if real_dist:
+            plt.xlabel('Km from radar - North (+)')
+            plt.ylabel('Km from radar - East (+)')
+        else:
+            plt.xlabel('Latitude (°)')
+            plt.ylabel('Longitude (°)')
         axis.set_zlabel('Altitude (km)')
 
-    # Compute r2.
-    if r2:
-        y_hat = network.predict(X)
-        y_pred = list(y_hat.T[0])
-        y_true = list(y)
-        r2 = metrics.r2_score(y_true, y_pred)
-        # print(y_true)
-        # print(y_pred)
-        print('R2 Coefficient: {}.'.format(r2))
+    # Compute and display r2 coefficient.
+    y_hat = network.predict(x)
+    y_pred = list(y_hat.T[0])
+    y_true = list(y)
+    r2 = metrics.r2_score(y_true, y_pred)
+    print('R2 Coefficient: {}.'.format(r2))
 
     # Display plot.
     plt.show()
-
-
-# Inputs.
-data_file = r"..\..\input_data\2016\11\27\20161127.002_lp_1min-fitcal.h5"
-start_time = "2016-11-27T22:45:00"
-end_time = "2016-11-27T22:48:00"
-# data_file = r"..\..\input_data\risrn_synthetic_imaging_chapman.h5"
-# start_time = "2016-09-13T00:00:01"
-# end_time = "2016-09-13T00:00:10"
-altitudes = [300]
-color_lim = [1e9, 1e11]
-
-# Convert start times to datetime format.
-start_time = dt.datetime.strptime(start_time, '%Y-%m-%dT%H:%M:%S')
-end_time = dt.datetime.strptime(end_time, '%Y-%m-%dT%H:%M:%S')
-
-# Open file and extract the following arrays: time, latitude, longitude, altitude, value, error.
-time, lat, lon, alt, val, err, hull_vert = read_datafile(data_file, start_time, end_time)
-
-# Run NN.
-n = 1512
-data = pd.DataFrame([lat, lon, alt, val[0], err[0]]).T.iloc[:n, :]  # .sample(frac=1)
-data.columns = ['Latitude', 'Longitude', 'Altitude', 'Value', 'Error']
-
-# Normalize errors with altitude.
-min_alt, max_alt = min(data['Altitude']), max(data['Altitude'])
-# data['Error'] = ((data['Altitude'] - min_alt) / (max_alt - min_alt)) * data['Error']
-
-# Remove values with large errors.
-# Potentially, we could divide the density values by the errors squared.
-# mask = data['Value'] >= data['Error']
-# data = data[mask]
-# data['Value'] = data['Value'] / data['Error']
-
-# alts = list(data['Altitude'])
-# steps = np.linspace(min(alts), max(alts), 10)
-data = data.drop(['Error'], axis=1)
-pd.set_option("display.max_rows", None, "display.max_columns", None)
-nn_model(data, rows=100, columns=100, r2=True, cbar_lim=[1e10, 3e11], distances=True)
-
-# Things to discuss.
-# 1. Which errors should be filtered out? If an error is larger than the value?
-# 2. I am applying limits (10^10, 10^12).
-# 3. Standard deviation filter. Is it normally distributed?
-# 4. High altitudes (Errors are too big). Should we make the error analysis altitude dependent?
-# 5. Not including values with large errors leads to non-sense predictions.
-# 6. Over fitting vs. epochs
-# 7. Chapman - Worked!
-# 8. Interpolation per beam is difficult to do. Instead, I am plotting the points at the closest layer.
-#    More layers == Higher accuracy?
-# 9. Map projection. Is it okay?
-
-# Steps.
-# 1. Include errors (by weighing each data point), or filter them out. (density/(error^2))
-# 2. Over fitting penalization with neural networks.
-
-# Combining chapman and real data points.
-# Apply standard dev after applying log.
-# Altitude dependent filter.
-# Review statistics - over fitting.
-# Map - 100km ticks
-# Integration with Gemini.
-
-# from amisrsynthata.Ionosphere import Ionosphere
-#
-# config_filg = '/path/to/config_file.ini'
-# iono = Ionosphere(config_file)
-#
-# glat = 65.0
-# glon = 100.0
-# alt = 300000.
-# ne = iono.density(glat, glon, alt)
