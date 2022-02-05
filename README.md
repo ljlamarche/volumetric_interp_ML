@@ -10,8 +10,8 @@ Artificial neural network model for volumetric interpolation.
 # Output.
 3D:
 
-<img src="3Dplot.jpg" width="500"  />
+<img src="3Dplot.jpg" width="900"  />
 
 Video:
 
-<img src="video_demo.gif" width="500"  />
+<img src="video_demo.gif" width="900"  />
