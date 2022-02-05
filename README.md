@@ -3,7 +3,7 @@ Artificial neural network model for volumetric interpolation.
 
 # How to use.
 1. Open the model.py file.
-2. Define the inputs: data_file (h5), start and end times.
+2. Define the inputs: data_file (h5 RISR file), start and end times. A synthetic h5 (chapman layer) file has been uploaded to the github for testing.
 3. If you want to change some of the model parameters, scroll all the way down and modify those inside the volumetric_nn function. Refer to the function's doctring for a description of each parameter. 
 4. Run the model.py file.
 
