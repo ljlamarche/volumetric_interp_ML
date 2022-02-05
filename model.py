@@ -13,12 +13,9 @@ import pandas as pd
 from support_functions import read_datafile, volumetric_nn
 
 # Inputs: Directory to data file, start and end times.
-data_file = r"..\input_data\20161127.002_lp_1min-fitcal.h5"
-start = "2016-11-27T22:45:00"
-end = "2016-11-27T22:48:00"
-# data_file = r"..\input_data\risrn_synthetic_imaging_chapman.h5"
-# start = "2016-09-13T00:00:01"
-# end = "2016-09-13T00:00:10"
+data_file = r"risrn_synthetic_imaging_chapman.h5"
+start = "2016-09-13T00:00:01"
+end = "2016-09-13T00:00:10"
 
 # Convert start times to datetime format.
 start = dt.datetime.strptime(start, '%Y-%m-%dT%H:%M:%S')
