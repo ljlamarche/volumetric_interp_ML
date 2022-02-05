@@ -8,8 +8,10 @@ Artificial neural network model for volumetric interpolation.
 4. Run the model.py file.
 
 # Output.
-2D (fig_3d = False):
-<img src="3Dplot.jpg" width="200"  />
+3D:
+
+<img src="3Dplot.jpg" width="500"  />
 
 Video:
-<img src="video_demo.gif" width="300"  />
+
+<img src="video_demo.gif" width="500"  />
