@@ -43,6 +43,6 @@ data = data.drop(['Error'], axis=1)
 pd.set_option("display.max_rows", None, "display.max_columns", None)
 volumetric_nn(data, resolution=(100, 100, 30), cbar_lim=(1e10, 3e11), real_dist=False, fig3D=True)
 
-# Steps.
+# Things to try.
 # 1. Include errors by weighing each data point (density/(error^2)?), or filter them out.
 # 2. Overfitting penalization with neural networks. See: https://www.tensorflow.org/tutorials/keras/overfit_and_underfit
