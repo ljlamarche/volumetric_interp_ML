@@ -10,7 +10,7 @@ Embry-Riddle Aeronautical University
 # Imports.
 import datetime as dt
 import pandas as pd
-from support_functions import read_datafile, volumetric_nn
+from support_functions_mod import read_datafile, volumetric_nn
 
 # Inputs: Directory to data file, start and end times.
 data_file = r"risrn_synthetic_imaging_chapman.h5"
