@@ -1,5 +1,5 @@
 # volumetric_interp_ML
-Artificial neural network model for volumetric interpolation.
+Artificial neural network model for volumetric interpolation.  This is designed to be used with data from the Advanced Modular Incoherent Scatter Radars (AMISR).
 
 # How to use.
 1. Open the model.py file.
