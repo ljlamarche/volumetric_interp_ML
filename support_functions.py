@@ -447,6 +447,8 @@ def optimizer(x, y, weights):
     neurons_range = [64, 32, 16, 8, 4, 1]
 
     def find_parameters():
+	best_epoch = None
+	best_neurons = None
         score = 0
         # Iterating through all of the epochs and neurons combinations.
         for epoch in epoch_range:
