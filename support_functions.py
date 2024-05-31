@@ -482,8 +482,8 @@ def optimizer(x, y, weights):
                     best_neurons = neurons_range[i:-1]
                     score = new_score
 	if best_epoch == None:
-		best_epoch = 300
-		best_neurons = [64, 32, 16, 8, 4]
+	    best_epoch = 300
+            best_neurons = [64, 32, 16, 8, 4]
 
         return best_epoch, best_neurons, score
     epoch, neurons_range, score = find_parameters()
