@@ -205,24 +205,19 @@ def volumetric_nn(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, d
     df = df.dropna()
 
     # Defining the weight of each point.
-    y_actual = list(df['Value'])
-    y_error = list(df['Error'])
+    y_actual = list(df['Log Value'])
+    y_error = list(df['Log Error'])
 
     weights = []
     for i in range(len(y_actual)):
-        # Finding how each error relates to the actual value.
-        weight = 1 - (y_error[i]/y_actual[i])
-        if weight >= 0.1:
-            weights.append(weight)
-        elif weight >= 0:
-            weights.append(weight + 0.1)
-        # If the error is greater than the actual value.
-        else:
-            weights.append(0.05)
+        # Finding how each error relates to the actual value (formula was Nick's suggestion).
+        weight = y_actual[i] / y_error[i]**2
+        weights.append(weight)
     weights = np.array(weights)
     
     # Dropping the Error column.
     df = df.drop(['Error'], axis=1)
+
     # Normalize the data (in a new dataframe). Normalized data allows the neural network to be trained faster and more
     # effectively. Normalization is a rescaling of the data from the original range so that all values are within the
     # range of 0 and 1.
