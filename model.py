@@ -12,11 +12,8 @@ import datetime as dt
 import pandas as pd
 from support_functions import volumetric_nn, read_datafile
 
-# List of potential data to test.
-data = [r"20200518.001_lp_1min-fitcal.h5", r"20240511.003_lp_1min-fitcal.h5"]
-
 # Inputs: Directory to data file, start and end times.
-data_file = data[1]
+data_file = r"risrn_synthetic_imaging_chapman.h5"
 start = "2016-09-13T00:00:01"
 end = "2016-09-13T00:00:10"
 
