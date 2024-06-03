@@ -33,9 +33,6 @@ data.columns = ['Latitude', 'Longitude', 'Altitude', 'Value', 'Error']
 # mask = data['Value'] >= data['Error']
 # data = data[mask]
 
-# Drop the 'Errors' column.
-data = data.drop(['Error'], axis=1)
-
 # Train the neural network.
 pd.set_option("display.max_rows", None, "display.max_columns", None)
 volumetric_nn(data, resolution=(100, 100, 30), cbar_lim=(1e10, 3e11), real_dist=False, fig3D=True)
