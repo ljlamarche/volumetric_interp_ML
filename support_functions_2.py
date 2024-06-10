@@ -23,7 +23,7 @@ import tensorflow as tf
 import geopy.distance
 
 
-def read_datafile(filename, start_time, end_time, chi2lim=(0.1, 10)):
+def read_datafile_2(filename, start_time, end_time, chi2lim=(0.1, 10)):
     """
     Read a processed AMISR hdf5 file and return the time, coordinates, values, and errors as arrays.
 
@@ -133,8 +133,8 @@ class StopAtLossValue(tf.keras.callbacks.Callback):
             self.model.stop_training = True
 
 
-def volumetric_nn(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, density_range=(1e10, 1e12),
-                  fig3D=True, save_imgs=False):
+def volumetric_nn_2(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, density_range=(1e10, 1e12),
+                  fig3D_2=True, save_imgs=False):
     """
     Parameters:
         df: [dataframe]
@@ -319,7 +319,7 @@ def volumetric_nn(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, d
 
     # Create a plot, and corresponding subplots.
     fig = plt.figure()
-    if fig3D:
+    if fig3D_2:
         # ax = fig.add_subplot(1, 1, 1)
         ax = fig.add_subplot(121)
         ax_slider = plt.axes([0.15, 0.1, 0.25, 0.03])
@@ -404,7 +404,7 @@ def volumetric_nn(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, d
     slider.on_changed(update)
 
     # Plot 3D figure.
-    if fig3D:
+    if fig3D_2:
 
         # Create new meshgrid. (xx = lon, yy = lat).
         xx, yy = np.meshgrid(np.linspace(x_lim[1][0], x_lim[1][1], rows),
@@ -432,7 +432,7 @@ def volumetric_nn(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, d
         else:
             plt.xlabel('Longitude (°)')
             plt.ylabel('Latitude (°)')
-            plt.suptitle('Long Pulse Data')
+            plt.suptitle('Alternating Code Data')
         axis.set_zlabel('Altitude (km)')
         plt.show()
 
