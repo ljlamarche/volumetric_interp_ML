@@ -14,8 +14,8 @@ from support_functions import read_datafile, volumetric_nn
 from support_functions_2 import read_datafile_2, volumetric_nn_2
 
 # Inputs: Directory to data file, start and end times.
-data_file = r"C:\Users\abiga\Desktop\AMISR Data\20220426.001_lp_5min-fitcal.h5"
-data_file_2 = r"C:\Users\abiga\Desktop\AMISR Data\20220426.001_ac_5min-fitcal.h5"
+data_file = r"20220426.001_lp_5min-fitcal.h5"
+data_file_2 = r"20220426.001_ac_5min-fitcal.h5"
 # Data files should be from the same experiment and will have the same timeframe
 start = "2022-04-26T11:00:01"
 end = "2022-04-26T11:01:16"
