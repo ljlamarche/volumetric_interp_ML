@@ -319,89 +319,6 @@ def volumetric_nn_2(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False,
 
     # Create a plot, and corresponding subplots.
     fig = plt.figure()
-    if fig3D_2:
-        # ax = fig.add_subplot(1, 1, 1)
-        ax = fig.add_subplot(121)
-        ax_slider = plt.axes([0.15, 0.1, 0.25, 0.03])
-    else:
-        if real_dist:
-            ax = fig.add_subplot()
-        else:
-            ax = fig.add_subplot(projection=ccrs.PlateCarree())
-        ax_slider = plt.axes([0.3, 0.1, 0.42, 0.03])
-    plt.subplots_adjust(bottom=0.25)
-
-    # Extract the first layer (lowest altitude).
-    layer = array[:, :, 0]
-
-    # Create grid plot and slider. Plot the first layer (lower altitude).
-    im = ax.imshow(layer, cmap='jet', origin='lower', extent=[x_lim[1][0], x_lim[1][1], x_lim[0][0], x_lim[0][1]],
-                   vmin=cbar_lim[0], vmax=cbar_lim[1], aspect=aspect_ratio)
-    slider = Slider(ax_slider, 'Altitude (m)', x_lim[2][0], x_lim[2][1], x_lim[2][0],
-                    valstep=((x_lim[2][1] - x_lim[2][0]) / (heights - 1)))
-
-    # Set x and y axis labels.
-    if real_dist:
-        ax.set_xlabel('Km from radar - East (+)')
-        ax.set_ylabel('Km from radar - North (+)')
-    else:
-        ax.set_xlabel('Longitude')
-        ax.set_ylabel('Latitude')
-
-    # Add the original data points to their closest layer: Add a new column to the original dataframe that contains
-    # the corresponding layer index of each data point.
-    stations = list(np.linspace(x_lim[2][0], x_lim[2][1], heights))
-    indices = []
-    for a in list(df['Altitude']):
-        closest_alt = min(stations, key=lambda x: abs(x - a))
-        indices.append(stations.index(closest_alt))
-    df['Layer'] = indices
-
-    # Plot colorbar, using the predefined color bar limits.
-    fig.colorbar(im, ax=ax, location='right', orientation='vertical', )
-    cmap = im.set_clim(cbar_lim[0], cbar_lim[1])
-
-    # Plot original data points of the first layer (layer = 0).
-    points = df[df['Layer'] == 0]
-    ax.scatter(list(points['Longitude']), list(points['Latitude']), color='white', s=40)
-    ax.scatter(list(points['Longitude']), list(points['Latitude']), cmap=cmap, s=20)
-
-    # Create function to be called when the slider value (altitude) is changed.
-    def update(alt_value, save=False):
-        val = (alt_value - x_lim[2][0]) / (x_lim[2][1] - x_lim[2][0])
-        ax.clear()
-        pts = df[df['Layer'] == stations.index(alt_value)]
-        l, r, b, u = min(pts['Longitude']), max(pts['Longitude']), min(pts['Latitude']), max(pts['Latitude'])
-        ax.imshow(array[:, :, int(round(val * (heights - 1), 0))], cmap='jet', origin='lower',
-                  extent=[x_lim[1][0], x_lim[1][1], x_lim[0][0], x_lim[0][1]], vmin=cbar_lim[0], vmax=cbar_lim[1],
-                  aspect=aspect_ratio)
-        if real_dist:
-            ax.set_xlabel('Km from radar - East (+)')
-            ax.set_ylabel('Km from radar - North (+)')
-        else:
-            # print('here')
-            ax.set_xlabel('Longitude')
-            ax.set_ylabel('Latitude')
-        ax.plot([l, r], [b, b], 'k')
-        ax.plot([l, r], [u, u], 'k')
-        ax.plot([l, l], [b, u], 'k')
-        ax.plot([r, r], [b, u], 'k')
-        ax.scatter(list(pts['Longitude']), list(pts['Latitude']), color='white', s=40)
-        ax.scatter(list(pts['Longitude']), list(pts['Latitude']), c=list(pts['Value']), cmap='jet', s=20,
-                   vmin=cbar_lim[0], vmax=cbar_lim[1])
-
-        # Save the layer to a png file.
-        if save:
-            ax.set_title('Altitude: {} km.'.format(round(alt_value / 1000, 1)))
-            plt.savefig('fig_{}.jpg'.format(int(alt_value / 1000)))
-
-    # Save the images in png files (if selected by the user).
-    if save_imgs:
-        for value in range(int(x_lim[2][0]), int(x_lim[2][1]), int((x_lim[2][1] - x_lim[2][0]) / (heights - 1))):
-            update(value, save=True)
-
-    # Call update function when slider value is changed.
-    slider.on_changed(update)
 
     # Plot 3D figure.
     if fig3D_2:
@@ -409,7 +326,7 @@ def volumetric_nn_2(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False,
         # Create new meshgrid. (xx = lon, yy = lat).
         xx, yy = np.meshgrid(np.linspace(x_lim[1][0], x_lim[1][1], rows),
                              np.linspace(x_lim[0][0], x_lim[0][1], columns))
-        axis = fig.add_subplot(122, projection='3d')
+        axis = fig.add_subplot(111, projection='3d')
 
         # Set z limits.
         axis.set_zlim(x_lim[2][0] / 1000, x_lim[2][1] / 1000)
@@ -434,6 +351,8 @@ def volumetric_nn_2(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False,
             plt.ylabel('Latitude (°)')
             plt.suptitle('Alternating Code Data')
         axis.set_zlabel('Altitude (km)')
+        print('********************FILE WAS SAVED**********************')
+        plt.savefig('Alternating_Code_3D.jpg')
         plt.show()
 
     # Compute and display r2 coefficient.
@@ -444,3 +363,90 @@ def volumetric_nn_2(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False,
     print(f"R2 Coefficient: {r2}.")
     print(f"Mean absolute error: {mean_absolute_error(y_true, y_pred)}")
     print(f"Mean squared error: {mean_squared_error(y_true, y_pred)}")
+
+
+    ### PREVIOUS CODE FOR SLIDER ###
+
+    ##  if fig3D_2:
+        # ax = fig.add_subplot(1, 1, 1)
+##  ax = fig.add_subplot(121)
+        ##  ax_slider = plt.axes([0.15, 0.1, 0.25, 0.03])
+        ## else:
+        ## if real_dist:
+    ##   ax = fig.add_subplot()
+            ## else:
+    ##     ax = fig.add_subplot(projection=ccrs.PlateCarree())
+        ##  ax_slider = plt.axes([0.3, 0.1, 0.42, 0.03])
+    ##  plt.subplots_adjust(bottom=0.25)
+
+    # Extract the first layer (lowest altitude).
+    ## layer = array[:, :, 0]
+
+    # Create grid plot and slider. Plot the first layer (lower altitude).
+    ## im = ax.imshow(layer, cmap='jet', origin='lower', extent=[x_lim[1][0], x_lim[1][1], x_lim[0][0], x_lim[0][1]],
+    ##  vmin=cbar_lim[0], vmax=cbar_lim[1], aspect=aspect_ratio)
+    ## slider = Slider(ax_slider, 'Altitude (m)', x_lim[2][0], x_lim[2][1], x_lim[2][0],
+    ##   valstep=((x_lim[2][1] - x_lim[2][0]) / (heights - 1)))
+
+    # Set x and y axis labels.
+    ## if real_dist:
+        ## ax.set_xlabel('Km from radar - East (+)')
+        ##  ax.set_ylabel('Km from radar - North (+)')
+        ## else:
+        ##  ax.set_xlabel('Longitude')
+        ##  ax.set_ylabel('Latitude')
+
+    # Add the original data points to their closest layer: Add a new column to the original dataframe that contains
+    # the corresponding layer index of each data point.
+    ## stations = list(np.linspace(x_lim[2][0], x_lim[2][1], heights))
+    ##  indices = []
+    ## for a in list(df['Altitude']):
+    ##  closest_alt = min(stations, key=lambda x: abs(x - a))
+    ##  indices.append(stations.index(closest_alt))
+    ## df['Layer'] = indices
+
+    # Plot colorbar, using the predefined color bar limits.
+    ## fig.colorbar(im, ax=ax, location='right', orientation='vertical', )
+    ## cmap = im.set_clim(cbar_lim[0], cbar_lim[1])
+
+    # Plot original data points of the first layer (layer = 0).
+    ## points = df[df['Layer'] == 0]
+    ##  ax.scatter(list(points['Longitude']), list(points['Latitude']), color='white', s=40)
+    ##  ax.scatter(list(points['Longitude']), list(points['Latitude']), cmap=cmap, s=20)
+
+    # Create function to be called when the slider value (altitude) is changed.
+    ## def update(alt_value, save=False):
+        ## val = (alt_value - x_lim[2][0]) / (x_lim[2][1] - x_lim[2][0])
+        ## ax.clear()
+        ## pts = df[df['Layer'] == stations.index(alt_value)]
+        ##  l, r, b, u = min(pts['Longitude']), max(pts['Longitude']), min(pts['Latitude']), max(pts['Latitude'])
+        ## ax.imshow(array[:, :, int(round(val * (heights - 1), 0))], cmap='jet', origin='lower',
+                  ## extent=[x_lim[1][0], x_lim[1][1], x_lim[0][0], x_lim[0][1]], vmin=cbar_lim[0], vmax=cbar_lim[1],
+                  ## aspect=aspect_ratio)
+        ## if real_dist:
+            ## ax.set_xlabel('Km from radar - East (+)')
+            ## ax.set_ylabel('Km from radar - North (+)')
+            ## else:
+            # print('here')
+            ## ax.set_xlabel('Longitude')
+            ## ax.set_ylabel('Latitude')
+        ## ax.plot([l, r], [b, b], 'k')
+        ## ax.plot([l, r], [u, u], 'k')
+        ## ax.plot([l, l], [b, u], 'k')
+        ## ax.plot([r, r], [b, u], 'k')
+        ## ax.scatter(list(pts['Longitude']), list(pts['Latitude']), color='white', s=40)
+        ## ax.scatter(list(pts['Longitude']), list(pts['Latitude']), c=list(pts['Value']), cmap='jet', s=20,
+                   ## vmin=cbar_lim[0], vmax=cbar_lim[1])
+
+        # Save the layer to a png file.
+        ## if save:
+            ## ax.set_title('Altitude: {} km.'.format(round(alt_value / 1000, 1)))
+            ## plt.savefig('fig_{}.jpg'.format(int(alt_value / 1000)))
+
+    # Save the images in png files (if selected by the user).
+    ## if save_imgs:
+        ## for value in range(int(x_lim[2][0]), int(x_lim[2][1]), int((x_lim[2][1] - x_lim[2][0]) / (heights - 1))):
+            ## update(value, save=True)
+
+    # Call update function when slider value is changed.
+    ## slider.on_changed(update)
