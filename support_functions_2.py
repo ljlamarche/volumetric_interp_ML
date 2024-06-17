@@ -133,7 +133,7 @@ class StopAtLossValue(tf.keras.callbacks.Callback):
             self.model.stop_training = True
 
 
-def volumetric_nn_2(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, density_range=(1e10, 1e12),
+def volumetric_nn_2(df, start, end, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, density_range=(1e10, 1e12),
                   fig3D_2=True, save_imgs=False):
     """
     Parameters:
@@ -432,7 +432,7 @@ def volumetric_nn_2(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False,
         else:
             plt.xlabel('Longitude (°)')
             plt.ylabel('Latitude (°)')
-            plt.suptitle('Alternating Code Data')
+            plt.suptitle(f'Alternating Code (UTC): {start} - {end:%H:%M:%S}')
         axis.set_zlabel('Altitude (km)')
         plt.show()
 
