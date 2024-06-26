@@ -134,7 +134,7 @@ class StopAtLossValue(tf.keras.callbacks.Callback):
             self.model.stop_training = True
 
 
-def volumetric_nn(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, density_range=(1e10, 1e12),
+def volumetric_nn(df, start, end, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, density_range=(1e10, 1e12),
                   fig3D=True, save_imgs=False):
     """
     Parameters:
@@ -435,6 +435,7 @@ def volumetric_nn(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, d
             plt.xlabel('Latitude (°)')
             plt.ylabel('Longitude (°)')
         axis.set_zlabel('Altitude (km)')
+        plt.suptitle(f'Date: {start:%Y-%m-%d}  Timeframe (UTC): {start:%H:%M:%S} - {end:%H:%M:%S}')
         plt.show()
 
     # Compute and display r2 coefficient.

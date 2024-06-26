@@ -14,7 +14,7 @@ import geopy.distance
 
 
 
-def read_datafile(filenames, start_time, end_time, chi2lim=(0.1, 10)):
+def read_datafiles(filenames, start_time, end_time, chi2lim=(0.1, 10)):
     """
     Read a processed AMISR hdf5 file and return the time, coordinates, values, and errors as arrays.
 
