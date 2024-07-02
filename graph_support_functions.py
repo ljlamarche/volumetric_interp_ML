@@ -1,117 +1,146 @@
-from support_functions_mod import read_datafile
+# Imports.
 import numpy as np
-import matplotlib.pyplot as plt
+import pandas as  pd
 import datetime as dt
-import pandas as pd
-from matplotlib.widgets import Slider
-from graph_support_functions import create_all_data, index_data, filter_data
+from support_functions_mod import read_datafile, volumetric_nn
+from amisrsynthdata.ionosphere import Ionosphere
+import yaml
 
+def create_all_data(start, end, data_file, n, config_file):
+    # Open file and extract the following arrays: time, latitude, longitude, altitude, value, error.
+    data = read_datafile(data_file, start, end)
 
-def get_data():
-    # Lists of potential data to test.
-    datas = [["chapman_data_025.h5", "chapman_data_ac.h5"], ["circular_data_025.h5", "circular_data_ac.h5"], ["gradient_data_025.h5", "gradient_data_ac.h5"], ["tubular_data_025.h5", "tubular_data_ac.h5"], ["wave_data_025.h5", "wave_data_ac.h5"], ["gradient_circular_data_ac.h5", "gradient_circular_data_025.h5"], ["chapman_circular_data_ac.h5", "chapman_circular_data_025.h5"], ["chapman_gradient_data_ac.h5", "chapman_gradient_data_025.h5"], ["wave2_data_ac.h5", "wave2_data_025.h5"], ["two_circles_data_ac.h5", "two_circles_data_025.h5"]]
-    config_files = ['chapman_config.yaml', 'circular_config.yaml', 'gradient_config.yaml', 'tubular_config.yaml', 'wave_config.yaml', "gradient_circular_config.yaml", "chapman_circular_config.yaml", "chapman_gradient_config.yaml", "wave2_config.yaml", "two_circles_config.yaml"]
+    # Configuring the synthetic ionosphere file.
+    with open(config_file, 'r') as cf:
+        config = yaml.load(cf, Loader=yaml.FullLoader)
+    iono = Ionosphere(config)
 
-    # n: Determines which datafile is tested.
-    n = 0
-    
-    # Inputs: Directory to data file, start and end times.
-    # data_file = data_synthetic[n]
-    data_file = datas[n]
-    config_file = config_files[n]
+    # Importing the Network.
+    network, _, y_lim, _, _, stations = volumetric_nn(data, resolution=(100, 100, 30), cbar_lim=(1e10, 3e11), real_dist=False, fig3D=True)
 
-    start = "2016-09-13T00:00:01"
-    end = "2016-09-13T00:00:10"
-    
-    # Convert start times to datetime format.
-    start = dt.datetime.strptime(start, '%Y-%m-%dT%H:%M:%S')
-    end = dt.datetime.strptime(end, '%Y-%m-%dT%H:%M:%S')
+    # Finding the min and max of the latitude, longitude, and altitude.
+    min_lat = int(np.min(data['Latitude']))
+    max_lat = int(np.max(data['Latitude']))
 
-    # Finding multiple average errors to find the mean average error and standard deviation. 
-    mae_list = []
-    for i in range(3):
-        df, stations = create_all_data(start, end, data_file, 0, config_file)
-        mae_list.append(np.mean(abs(np.array(df['Value']))))
+    min_long = int(np.min(data['Longitude']))
+    max_long = int(np.max(data['Longitude']))
 
-    # Mean average error and standard deviation calculation.
-    mae = np.mean(mae_list)
-    stdd = np.std(mae_list)
+    min_alt = int(np.min(data['Altitude']))
+    max_alt = int(np.max(data['Altitude']))
+
+    # Setting Utime to a numpy array.
+    utime = np.array((dt.datetime(2016, 9, 13, 0, 5, 0)-dt.datetime.utcfromtimestamp(0)).total_seconds())
+
+    # Create an empty DataFrame to store the latitude, longitude, and altitude combinations.
+    df = pd.DataFrame()
+    lats = []
+    longs = []
+    alts = []
+
+    # Lists to store the actual densities.
+    actual_densities = []
+
+    # Finding the actual density at every combination of the latitudes, longitudes, and altitudes.
+    for lat in range(min_lat*4, max_lat*4, 1):
+        for long in range(min_long*8, max_long*8, 1):
+            for alt in range(min_alt, max_alt, 10_000):
+                actual_densities.append(iono.density(utime, lat/4, long/8, alt))
+                lats.append(lat/4)
+                longs.append(long/8)
+                alts.append(alt)
+
+    # Adding the columns to the empty DataFrame.
+    df['Latitude'] = lats
+    df['Longitude'] = longs
+    df['Altitude'] = alts
+    df['actual_densities'] = actual_densities
+
+    # Filtering out negative densities.
+    df = df[df['actual_densities'] >= 0]
+
+    # Finding the predicted electron density.
+    x = df[['Latitude', 'Longitude', 'Altitude']]
+
+    # Normalizing x.
+    for column in x:
+        x[column] = (x[column] - np.min(x[column])) / (np.max(x[column]) - np.min(x[column]))
         
 
-    # Removing some data points so the plot is easier to rotate.
-    rows_remove = df.sample(n=127500, random_state = 1).index
-    df = df.drop(rows_remove)
+    network_predicted_densities = network.predict(x)
+    network_predicted = 10 ** (network_predicted_densities * (y_lim[1] - y_lim[0]) + y_lim[0])
 
-    # Creating the reference date to find the limits for plotting.
-    ref_data = read_datafile(data_file, start, end)
 
-    # Indexing the data (assigning each row to a layer).
-    df, ref_data = index_data([df, ref_data], stations)
+    # Adding predictions to the DataFrame
+    df['network_predicted'] = network_predicted
 
-    # Filtering data so that only points within the known region are shown.
-    df_filtered = filter_data(df, ref_data)
+    # Converting None values to NaN.
+    df['network_predicted'] = df['network_predicted'].apply(lambda x: np.nan if x is None else x).astype(float)
+    df['actual_densities'] = df['actual_densities'].apply(lambda x: np.nan if x is None else x).astype(float)
 
-    # print("df")
-    print(df.head())
+    # Compute the difference
+    df['Value'] = df['network_predicted'] - df['actual_densities']
 
+    return df, stations
+
+def index_data(datafiles, stations):
+    # Add the original data points to their closest layer: Add a new column to the original dataframe that contains
+    # the corresponding layer index of each data point.
+    for data_frame in datafiles:
+        indices = []
+        def find_closest_station(a, stations):
+            closest_station = stations[0]
+            smallest_diff = abs(stations[0] - a)
+            for station in stations:
+                diff = abs(station - a)
+                if diff < smallest_diff:
+                    closest_station = station
+                    smallest_diff = diff
+            return closest_station
+
+        for a in list(data_frame['Altitude']):
+            closest_altitude = find_closest_station(a, stations)
+            indices.append(stations.index(closest_altitude))
+        data_frame['Layer'] = indices
+    return datafiles
+
+def filter_data(df, ref_data):
+    # Finding the maximum and minimum values for latitude and longitude in each layer.
+    lat_min_max = []
+    long_min_max = []
+    for i in range(30): # 0-29
+        min = np.min(ref_data['Latitude'][ref_data['Layer'] == i])
+        max = np.max(ref_data['Latitude'][ref_data['Layer'] == i])
+        if i > 0:
+            last_min = np.min(ref_data['Latitude'][ref_data['Layer'].isin(range(i))])
+            last_max = np.max(ref_data['Latitude'][ref_data['Layer'].isin(range(i))])
+            if last_min < min:
+                min = last_min
+            if last_max > max:
+                max = last_max
+        lat_min_max.append([min, max])
+
+    for i in range(30): # 0-29
+        min = np.min(ref_data['Longitude'][ref_data['Layer'] == i])
+        max = np.max(ref_data['Longitude'][ref_data['Layer'] == i])
+        if i > 0:
+            last_min = np.min(ref_data['Longitude'][ref_data['Layer'].isin(range(i))])
+            last_max = np.max(ref_data['Longitude'][ref_data['Layer'].isin(range(i))])
+            if last_min < min:
+                min = last_min
+            if last_max > max:
+                max = last_max
+        long_min_max.append([min, max])
     
-    return df_filtered, mae, stdd
+    # Filtering the layers so that data outside of the region where data was collected ("the cone")
+    #  is removed from the data frame.
+    df_filtered = pd.DataFrame(columns=['Latitude', 'Longitude', 'Altitude', 'Value', 'Layer'])
+    for index, row in df.iterrows():
+        lat_min = lat_min_max[int(row['Layer'])][0]
+        lat_max = lat_min_max[int(row['Layer'])][1]
+        long_min = long_min_max[int(row['Layer'])][0]
+        long_max = long_min_max[int(row['Layer'])][1]
+        if (lat_min <= row['Latitude'] and lat_max >= row['Latitude']) and (long_min <= row['Longitude'] and long_max >= row['Longitude']):
+            new_row = {'Latitude':row['Latitude'], 'Longitude':row['Longitude'], 'Altitude':row['Altitude'], 'Value':row['Value'], 'Layer':row['Layer']}
+            df_filtered.loc[len(df_filtered)] = new_row
 
-def main():
-    # Getting the data.
-    data, mae, stdd = get_data()
-
-    # Scaling for plotting
-    data['Altitude'] = np.array(data['Altitude'])/1000
-    data = data.sort_values(by='Layer')
-    
-    # Plotting
-
-    # Creating the figure.
-    Cen3D = plt.figure()
-    ax = Cen3D.add_subplot(111, projection='3d')
-
-    # Creating a scatter plot.
-    sc = ax.scatter(data['Longitude'],data['Latitude'],data['Altitude'],cmap='bwr',c=data['Value'], vmin=-2.5e11, vmax=2.5e11)
-    
-    # Adding the labels.
-    ax.set_xlabel('Longitude', labelpad=5)
-    ax.set_ylabel('Latitude', labelpad=5)
-    ax.set_zlabel('Altitude (km)', labelpad=7)
-
-    # Adding the colorbar legend.
-    cbar = plt.colorbar(sc, pad=0.2, ax=ax, shrink=0.5, aspect=5)
-    cbar.set_label('Value')
-
-    # Creating a slider axis and slider
-    ax_slider = plt.axes([0.25, 0.01, 0.65, 0.03], facecolor='lightgoldenrodyellow')
-    slider = Slider(ax_slider, 'Altitude', 0, 800, valinit=0)
-
-    # Update function
-    def update(val):
-        current_alt = slider.val
-        threshold = 50  # Altitude threshold for filtering
-        mask = np.abs(data['Altitude'] - current_alt) < threshold
-        sc._offsets3d = (data['Longitude'][mask], data['Latitude'][mask], data['Altitude'][mask])
-        sc.set_array(data['Value'][mask])
-        Cen3D.canvas.draw_idle()
-
-    # Connecting the slider to the update function
-    slider.on_changed(update)
-
-    plt.show()
-    print("MAE (Cone):", mae)
-    print("STD (Cone):", stdd)
-    # print(data.head(20))
- 
-    
-
-
- 
-
-    
-
-
-
-
-if __name__ == main(    main()
+    return df_filtered
