@@ -143,13 +143,13 @@ class StopAtLossValue(tf.keras.callbacks.Callback):
             self.model.stop_training = True
 
 
-def volumetric_nn(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, density_range=(1e10, 1e12),
+def volumetric_nn(df, start, end, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, density_range=(1e10, 1e12),
                   fig3D=True, save_imgs=False):
     """
     Parameters:
         df: [dataframe]
             Pandas daraframe with 4 columns (not including the index column). Such columns must be: 'Latitude',
-            'Longitude', 'Altitude' and 'Value'. The 'Vavlue' column must contain the electron density measures.
+            'Longitude', 'Altitude' and 'Value'. The 'Value' column must contain the electron density measures.
         resolution: [tuple or list]
             Tuple or list containing three integers. The resolution is the size of the 3D grid (x, y, z), corresponding
             to (longitude, latitude, altitude). The higher the resolution, the longer it takes for the code to run.
@@ -530,7 +530,8 @@ def volumetric_nn(df, resolution=(10, 10, 10), cbar_lim=None, real_dist=False, d
             plt.xlabel('Latitude (°)')
             plt.ylabel('Longitude (°)')
         axis.set_zlabel('Altitude (km)')
-   
+        plt.suptitle(f'Date: {start:%Y-%m-%d}  Timeframe (UTC): {start:%H:%M:%S} - {end:%H:%M:%S}')
+
         # Metrics.
         print("Weighted Mean Average Error (WMAE):", weighted_mean_abs_error_sklearn)
         print("Weighted Mean Squared Error (WMSE):", weighted_mean_sq_error_sklearn)
